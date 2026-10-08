@@ -12,6 +12,7 @@ import {
   OnboardingScreen,
   ProfileScreen,
   RegisterScreen,
+  ScenarioCenterScreen,
 } from './screens';
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
@@ -43,6 +44,7 @@ export function AppNavigator() {
             <Stack.Screen name="History" component={HistoryScreen} />
             <Stack.Screen name="DeviceHealth" component={DeviceHealthScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="ScenarioCenter" component={ScenarioCenterScreen} />
           </>
         )}
       </Stack.Navigator>

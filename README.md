@@ -188,3 +188,33 @@ For detailed electrical specifications, decoupling capacitors, and bring-up orde
 - `POST /api/v1/alerts/{alert_id}/acknowledge`: Acknowledge emergency alert
 - `POST /api/v1/alerts/{alert_id}/resolve`: Resolve emergency alert
 - `WebSocket /api/v1/ws`: Real-time event broadcasting
+
+---
+
+## 6. Standalone Local Mode vs Optional Remote Mode
+
+Nex Guard supports dual operational modes:
+
+### Local Mode (Default Standalone Architecture)
+- **Engine**: SQLite (`nex_guard.db`) + `expo-secure-store` + `expo-crypto` per-user SHA-256 salt.
+- **Capabilities**: Local authentication, profile management, device registration, local fall event state machine, local emergency notifications, and local alert history.
+- **Connectivity**: **100% Offline** (No FastAPI, PostgreSQL, Docker, Wi-Fi, or mobile data required).
+
+### Optional Remote Mode (Future Cloud Synchronization)
+- **Engine**: FastAPI REST API + PostgreSQL + WebSocket broadcaster (`/api/v1/ws`).
+- **Capabilities**: Remote telemetry storage, multi-caregiver remote push notifications, cloud sync.
+- **Boundary**: Isolated under `RemoteAuthService` and remote API adapters.
+
+### Hardware & Simulation Distinctions
+1. **Local Fall Simulation**:
+   - In-app local test engine (`TRIGGER LOCAL FALL SIMULATION`).
+   - Executes deterministic local state machine (`NORMAL` → `POSSIBLE_FALL` → `USER_CONFIRMATION` [20s window] → `CANCELLED` or `CONFIRMED_FALL` → `GPS_LOCATION` → `LOCAL_ALERT` → `ACKNOWLEDGED` → `RESOLVED`).
+   - Clearly tagged with source `LOCAL SIMULATION` in SQLite database and UI screens.
+   - Triggers high-priority local Android notifications using `expo-notifications`.
+2. **Real Hardware Fall Detection**:
+   - ESP32-S3 wearable micro-controller equipped with physical MPU6050 6-axis IMU, BMP390 barometric altitude sensor, NEO-6M GNSS GPS module, SIM800L GSM module, active buzzer, vibration motor, and physical cancel button.
+   - Runs local 1D CNN TinyML model directly on ESP32-S3 hardware.
+3. **Remote Caregiver Alert**:
+   - Optional push notification & cloud synchronization infrastructure over FastAPI REST / WebSockets.
+
+

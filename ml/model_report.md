@@ -15,7 +15,7 @@
 | **Recall** | 1.0000 | 1.0000 |
 | **F1-Score** | 1.0000 | 1.0000 |
 | **False Positive Rate** | 0.0000 | 0.0000 |
-| **Inference Latency** | ~0.006 ms / window | ~0.050 ms / window |
+| **Inference Latency** | ~0.009 ms / window | ~0.050 ms / window |
 | **Model Size** | ~14 KB (C Header) | ~45 KB |
 | **Target Execution** | ESP32-S3 Local Edge Inference | Python / Server |
 

@@ -21,7 +21,9 @@
       "package": "com.anshuman_verma.nexguard"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-sqlite",
+      "expo-secure-store"
     ]
   }
 }

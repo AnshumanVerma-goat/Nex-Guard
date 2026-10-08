@@ -14,6 +14,12 @@ import { api } from './api';
 import { useAlertStore, useAuthStore, useDeviceStore } from './store';
 import { EventPayload, RootStackParamList } from './types';
 
+import { AuthService } from './services/AuthService';
+import { ProfileService } from './services/ProfileService';
+import { DeviceService } from './services/DeviceService';
+import { AlertService } from './services/AlertService';
+import { FallDetectionService, FallStateMachineState } from './services/FallDetectionService';
+
 type Props<Route extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, Route>;
 
 const colors = {
@@ -120,18 +126,13 @@ export function LoginScreen({ navigation }: Props<'Login'>) {
   const setAuth = useAuthStore((state) => state.setAuth);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      setError('Please fill in email and password.');
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      const res = await api.login({ email, password });
-      setAuth(res.access_token, res.full_name || 'Caregiver');
+      const res = await AuthService.login({ email, password });
+      setAuth(res.user.id, res.user.email, res.user.full_name);
     } catch (e: any) {
-      // Fallback for local demo if backend is offline
-      setAuth('mock-jwt-token', 'Caregiver');
+      setError(e.message || 'Incorrect email or password.');
     } finally {
       setLoading(false);
     }
@@ -140,9 +141,9 @@ export function LoginScreen({ navigation }: Props<'Login'>) {
   return (
     <Shell eyebrow="NEX GUARD / ACCESS">
       <View style={styles.authSpace}>
-        <Text style={styles.kicker}>CAREGIVER CONSOLE</Text>
+        <Text style={styles.kicker}>CAREGIVER CONSOLE (LOCAL ACCOUNT)</Text>
         <Text style={styles.hero}>Stay close.{'\n'}Respond faster.</Text>
-        <Text style={styles.copy}>A quiet command center for the people who care for someone else.</Text>
+        <Text style={styles.copy}>A quiet local command center for the people who care for someone else.</Text>
         {error && <Text style={styles.errorText}>{error}</Text>}
         <View style={styles.form}>
           <Field label="EMAIL ADDRESS" value={email} onChangeText={setEmail} placeholder="caregiver@example.com" />
@@ -165,17 +166,13 @@ export function RegisterScreen({ navigation }: Props<'Register'>) {
   const setAuth = useAuthStore((state) => state.setAuth);
 
   const handleRegister = async () => {
-    if (!name || !email || !password) {
-      setError('Please fill in all fields.');
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      const res = await api.register({ email, password, full_name: name });
-      setAuth(res.access_token, res.full_name);
+      const res = await AuthService.register({ email, password, full_name: name });
+      setAuth(res.user.id, res.user.email, res.user.full_name);
     } catch (e: any) {
-      setAuth('mock-jwt-token', name || 'Caregiver');
+      setError(e.message || 'Registration failed.');
     } finally {
       setLoading(false);
     }
@@ -186,12 +183,12 @@ export function RegisterScreen({ navigation }: Props<'Register'>) {
       <View style={styles.authSpace}>
         <Text style={styles.kicker}>BEGIN WITH CONTEXT</Text>
         <Text style={styles.hero}>Build a safer{'\n'}daily rhythm.</Text>
-        <Text style={styles.copy}>Set up a local caregiver profile, then pair the wearable in a few deliberate steps.</Text>
+        <Text style={styles.copy}>Set up a local caregiver device account. Data stays on your device.</Text>
         {error && <Text style={styles.errorText}>{error}</Text>}
         <View style={styles.form}>
           <Field label="YOUR NAME" value={name} onChangeText={setName} placeholder="Caregiver name" />
           <Field label="EMAIL" value={email} onChangeText={setEmail} placeholder="you@example.com" />
-          <Field label="PASSWORD" value={password} onChangeText={setPassword} placeholder="Choose password" secureTextEntry />
+          <Field label="PASSWORD" value={password} onChangeText={setPassword} placeholder="Choose password (min 6 chars)" secureTextEntry />
           <Button label="START SETUP" onPress={handleRegister} loading={loading} />
           <Button label="BACK TO ACCESS" secondary onPress={() => navigation.goBack()} />
         </View>
@@ -205,22 +202,30 @@ export function OnboardingScreen() {
   const [relationship, setRelationship] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const userId = useAuthStore((state) => state.userId);
   const completeProfile = useAuthStore((state) => state.completeProfile);
 
   const handleSave = async () => {
     const elderlyName = name.trim() || 'Family member';
     setLoading(true);
     try {
-      await api.createElderlyProfile({ full_name: elderlyName, medical_notes: relationship });
-    } catch {}
-    setLoading(false);
-    completeProfile(elderlyName, relationship);
+      await ProfileService.createProfile({
+        userId,
+        full_name: elderlyName,
+        medical_notes: relationship,
+      });
+    } catch (e) {
+      console.warn('[LOCAL PROFILE ERROR]', e);
+    } finally {
+      setLoading(false);
+      completeProfile(elderlyName, relationship);
+    }
   };
 
   return (
     <Shell eyebrow="NEX GUARD / 01 PROFILE">
       <View style={styles.setupSpace}>
-        <SectionTitle index="01 / PERSON" title="Who are we watching over?" copy="This information is synchronized with your caregiver account." />
+        <SectionTitle index="01 / PERSON" title="Who are we watching over?" copy="Stored locally in device SQLite database." />
         <Field label="NAME" value={name} onChangeText={setName} placeholder="Elderly person name" />
         <Field label="RELATIONSHIP" value={relationship} onChangeText={setRelationship} placeholder="Parent, partner, relative" />
         <Button label="SAVE CARE PLAN" onPress={handleSave} loading={loading} />
@@ -238,10 +243,13 @@ export function DeviceSetupScreen() {
     const id = deviceId.trim() || 'nex-guard-001';
     setLoading(true);
     try {
-      await api.registerDevice(id);
-    } catch {}
-    setLoading(false);
-    configure(id);
+      await DeviceService.registerDevice(id);
+    } catch (e) {
+      console.warn('[LOCAL DEVICE REGISTRATION ERROR]', e);
+    } finally {
+      setLoading(false);
+      configure(id);
+    }
   };
 
   return (
@@ -250,11 +258,11 @@ export function DeviceSetupScreen() {
         <SectionTitle index="02 / PAIR" title="Connect the wearable." copy="Use the device ID printed on the inside of the enclosure." />
         <Field label="DEVICE ID" value={deviceId} onChangeText={setDeviceId} placeholder="nex-guard-001" />
         <View style={styles.diagram}>
-          <Text style={styles.diagramCode}>WEARABLE / READY</Text>
+          <Text style={styles.diagramCode}>WEARABLE / REGISTERED (LOCAL)</Text>
           <Text style={styles.diagramTitle}>ESP32-S3</Text>
-          <Text style={styles.diagramCopy}>IMU · GNSS · WIFI · LOCAL ALERT</Text>
+          <Text style={styles.diagramCopy}>IMU · GNSS · LOCAL SQLITE STORAGE</Text>
         </View>
-        <Button label="PAIR DEVICE" onPress={handlePair} loading={loading} />
+        <Button label="PAIR DEVICE LOCALLY" onPress={handlePair} loading={loading} />
       </View>
     </Shell>
   );
@@ -263,24 +271,52 @@ export function DeviceSetupScreen() {
 export function DashboardScreen({ navigation }: Props<'Dashboard'>) {
   const caregiverName = useAuthStore((state) => state.caregiverName);
   const elderlyName = useAuthStore((state) => state.elderlyName);
-  const connected = useDeviceStore((state) => state.connected);
   const battery = useDeviceStore((state) => state.batteryLevel);
   const history = useAlertStore((state) => state.history);
+  const deviceId = useDeviceStore((state) => state.deviceId);
 
   const [loading, setLoading] = useState(false);
+  const [simulating, setSimulating] = useState(false);
 
-  const loadEvents = async () => {
+  const loadLocalAlerts = async () => {
     setLoading(true);
     try {
-      const events = await api.events();
+      const alerts = await AlertService.getAlertHistory();
+      const events: EventPayload[] = alerts.map((a) => ({
+        id: a.id,
+        device_id: a.fall_event?.device_id || deviceId || 'nex-guard-001',
+        event_type: (a.fall_event?.event_type as 'FALL_DETECTED' | 'POTENTIAL_FALL' | 'CANCELLED') || 'FALL_DETECTED',
+        occurred_at: a.fall_event?.occurred_at || a.created_at,
+        confidence: a.fall_event?.confidence || 0.95,
+        latitude: a.fall_event?.latitude ?? null,
+        longitude: a.fall_event?.longitude ?? null,
+        battery_level: battery ?? 81,
+        alert_id: a.id,
+      }));
       useAlertStore.getState().setHistory(events);
-    } catch {}
-    setLoading(false);
+    } catch (e) {
+      console.warn('[DASHBOARD LOCAL ALERTS ERROR]', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    void loadEvents();
+    void loadLocalAlerts();
   }, []);
+
+  const handleSimulateFall = async () => {
+    setSimulating(true);
+    try {
+      void FallDetectionService.triggerSimulatedFall(deviceId || 'nex-guard-001');
+      navigation.navigate('Emergency');
+    } catch (e) {
+      console.warn('[SIMULATION ERROR]', e);
+    } finally {
+      setSimulating(false);
+      void loadLocalAlerts();
+    }
+  };
 
   return (
     <Shell>
@@ -295,13 +331,13 @@ export function DashboardScreen({ navigation }: Props<'Dashboard'>) {
       </View>
       <View style={styles.watchCard}>
         <View>
-          <Text style={styles.cardLabel}>CURRENTLY WATCHING</Text>
+          <Text style={styles.cardLabel}>CURRENTLY WATCHING (LOCAL DEVICE)</Text>
           <Text style={styles.cardName}>{elderlyName || 'Family member'}</Text>
           <Text style={styles.cardMeta}>
-            {connected ? 'LIVE CONNECTION' : 'RECONNECTING'} · {battery ?? '—'}% BATTERY
+            STANDALONE LOCAL MODE · {deviceId}
           </Text>
         </View>
-        <View style={[styles.signal, connected && styles.signalLive]} />
+        <View style={[styles.signal, styles.signalLive]} />
       </View>
       <View style={styles.metrics}>
         <View style={styles.metric}>
@@ -309,14 +345,22 @@ export function DashboardScreen({ navigation }: Props<'Dashboard'>) {
           <Text style={styles.metricLabel}>ALERTS LOGGED</Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.metricValue}>{connected ? 'OK' : '—'}</Text>
+          <Text style={styles.metricValue}>LOCAL</Text>
           <Text style={styles.metricLabel}>DEVICE STATUS</Text>
         </View>
       </View>
-      {loading ? <ActivityIndicator color={colors.ink} style={{ marginVertical: 12 }} /> : <LinkRow label="VIEW ALERT HISTORY" onPress={() => navigation.navigate('History')} />}
+      {loading ? (
+        <ActivityIndicator color={colors.ink} style={{ marginVertical: 12 }} />
+      ) : (
+        <LinkRow label="VIEW ALERT HISTORY" onPress={() => navigation.navigate('History')} />
+      )}
+      <LinkRow label="TEST SCENARIO CENTER" onPress={() => navigation.navigate('ScenarioCenter')} />
       <LinkRow label="DEVICE HEALTH" onPress={() => navigation.navigate('DeviceHealth')} />
       <LinkRow label="CAREGIVER SETTINGS" onPress={() => navigation.navigate('Profile')} />
-      <Text style={styles.dashboardFooter}>The important signal is the one that arrives in time.</Text>
+      <View style={{ marginTop: 16 }}>
+        <Button label="TRIGGER LOCAL FALL SIMULATION" secondary onPress={handleSimulateFall} loading={simulating} />
+      </View>
+      <Text style={styles.dashboardFooter}>Standalone offline mode: All records persisted in SQLite.</Text>
     </Shell>
   );
 }
@@ -329,14 +373,59 @@ export function EmergencyScreen({ navigation }: Props<'Emergency'>) {
   const updateAlertStatus = useAlertStore((state) => state.updateAlertStatus);
   const clearCurrent = useAlertStore((state) => state.clearCurrent);
 
+  const [engineState, setEngineState] = useState<FallStateMachineState>(FallDetectionService.getCurrentState());
+  const [countdown, setCountdown] = useState<number>(FallDetectionService.getCountdown());
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const interval = setInterval(() => {
+      if (mounted) {
+        setEngineState(FallDetectionService.getCurrentState());
+        setCountdown(FallDetectionService.getCountdown());
+      }
+    }, 500);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handleCancelFall = async () => {
+    setLoading(true);
+    await FallDetectionService.cancelFall();
+    setLoading(false);
+    if (navigation.canGoBack()) navigation.goBack();
+  };
+
+  const handleConfirmEmergency = async () => {
+    setLoading(true);
+    const alert = await FallDetectionService.confirmFall();
+    if (alert && alert.fall_event) {
+      const payload: EventPayload = {
+        id: alert.id,
+        device_id: alert.fall_event.device_id,
+        event_type: (alert.fall_event.event_type as any) || 'FALL_DETECTED',
+        occurred_at: alert.fall_event.occurred_at,
+        confidence: alert.fall_event.confidence,
+        latitude: alert.fall_event.latitude ?? null,
+        longitude: alert.fall_event.longitude ?? null,
+        battery_level: 81,
+        alert_id: alert.id,
+      };
+      useAlertStore.getState().receiveAlert(payload);
+    }
+    setLoading(false);
+  };
 
   const handleAcknowledge = async () => {
     setLoading(true);
     if (activeAlertId) {
       try {
-        await api.acknowledgeAlert(activeAlertId, 'Acknowledged via mobile app');
-      } catch {}
+        await AlertService.acknowledgeAlert(activeAlertId, 'Acknowledged via local mobile console');
+      } catch (e) {
+        console.warn('[LOCAL ACKNOWLEDGE ERROR]', e);
+      }
     }
     updateAlertStatus(activeAlertId || 'local', 'ACKNOWLEDGED');
     setLoading(false);
@@ -346,8 +435,10 @@ export function EmergencyScreen({ navigation }: Props<'Emergency'>) {
     setLoading(true);
     if (activeAlertId) {
       try {
-        await api.resolveAlert(activeAlertId, 'Resolved via mobile app');
-      } catch {}
+        await AlertService.resolveAlert(activeAlertId, 'Resolved via local mobile console');
+      } catch (e) {
+        console.warn('[LOCAL RESOLVE ERROR]', e);
+      }
     }
     updateAlertStatus(activeAlertId || 'local', 'RESOLVED');
     clearCurrent();
@@ -355,31 +446,52 @@ export function EmergencyScreen({ navigation }: Props<'Emergency'>) {
     if (navigation.canGoBack()) navigation.goBack();
   };
 
-  const statusText =
-    alertStatus === 'ACKNOWLEDGED'
-      ? 'Event acknowledged. User check-in active.'
-      : alertStatus === 'RESOLVED'
-      ? 'Event resolved safely.'
-      : 'Immediate attention required.';
+  const isConfirmationWindow = engineState === 'USER_CONFIRMATION' || engineState === 'POSSIBLE_FALL';
+
+  const statusText = isConfirmationWindow
+    ? `Possible fall detected! Safety check active.`
+    : alertStatus === 'ACKNOWLEDGED'
+    ? 'Event acknowledged. User check-in active.'
+    : alertStatus === 'RESOLVED'
+    ? 'Event resolved safely.'
+    : 'Immediate attention required.';
 
   return (
     <Shell eyebrow="NEX GUARD / PRIORITY EVENT">
       <View style={styles.emergency}>
-        <Text style={styles.alertCode}>🚨 FALL_DETECTED</Text>
+        <Text style={styles.alertCode}>🚨 FALL_DETECTED (LOCAL SIMULATION)</Text>
         <Text style={styles.emergencyTitle}>{statusText}</Text>
         <Text style={styles.copy}>
-          {event
-            ? `Device ${event.device_id} reported a likely fall at ${new Date(event.occurred_at).toLocaleTimeString()}.`
-            : 'A fall event has been reported by the wearable network.'}
+          {isConfirmationWindow
+            ? `Wearable simulation detected sudden impact. Please verify safety within ${countdown} seconds.`
+            : event
+            ? `Device ${event.device_id} reported a fall at ${new Date(event.occurred_at).toLocaleTimeString()}.`
+            : 'A fall event has been logged locally on this device.'}
         </Text>
+
         <View style={styles.emergencyData}>
-          <DataRow label="CONFIDENCE" value={event ? `${Math.round(event.confidence * 100)}%` : '—'} />
-          <DataRow label="LOCATION" value={event?.latitude ? `${event.latitude}, ${event.longitude}` : 'Awaiting GNSS fix'} />
-          <DataRow label="BATTERY" value={event?.battery_level ? `${event.battery_level}%` : '81%'} />
-          <DataRow label="STATUS" value={alertStatus || 'ACTIVE'} />
+          <DataRow label="SOURCE" value="LOCAL SIMULATION" />
+          <DataRow label="STATE MACHINE" value={engineState} />
+          {isConfirmationWindow && <DataRow label="COUNTDOWN" value={`${countdown}s remaining`} />}
+          <DataRow label="CONFIDENCE" value={event ? `${Math.round(event.confidence * 100)}%` : '94%'} />
+          <DataRow
+            label="LOCATION"
+            value={
+              event?.latitude !== undefined && event?.latitude !== null
+                ? `${event.latitude}, ${event.longitude}`
+                : 'Location unavailable (GNSS fix pending)'
+            }
+          />
+          <DataRow label="STATUS" value={isConfirmationWindow ? 'PENDING CONFIRMATION' : alertStatus || 'ACTIVE'} />
+          <DataRow label="STORAGE" value="LOCAL SQLITE" />
         </View>
 
-        {alertStatus !== 'RESOLVED' && (
+        {isConfirmationWindow ? (
+          <View style={{ gap: 12 }}>
+            <Button label="CANCEL / I'M OK" onPress={handleCancelFall} loading={loading} />
+            <Button label="CONFIRM EMERGENCY" secondary onPress={handleConfirmEmergency} loading={loading} />
+          </View>
+        ) : alertStatus !== 'RESOLVED' && (
           <View style={{ gap: 12 }}>
             {alertStatus !== 'ACKNOWLEDGED' && (
               <Button label="ACKNOWLEDGE ALERT" onPress={handleAcknowledge} loading={loading} />
@@ -402,23 +514,49 @@ function DataRow({ label, value }: { label: string; value: string }) {
 }
 
 export function HistoryScreen({ navigation }: Props<'History'>) {
-  const history = useAlertStore((state) => state.history);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchHistory() {
+      try {
+        const localAlerts = await AlertService.getAlertHistory();
+        if (mounted) setAlerts(localAlerts);
+      } catch (e) {
+        console.warn('[HISTORY LOAD ERROR]', e);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    void fetchHistory();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <Shell eyebrow="NEX GUARD / 03 HISTORY">
       <Pressable onPress={() => navigation.goBack()}>
         <Text style={styles.back}>← DASHBOARD</Text>
       </Pressable>
-      <SectionTitle index="03 / RECORD" title="Alert history" copy="Confirmed events received by this caregiver console." />
-      {history.length === 0 ? (
-        <Text style={styles.empty}>No events recorded yet.</Text>
+      <SectionTitle index="03 / RECORD" title="Alert history" copy="Local events stored safely in device SQLite database." />
+      {loading ? (
+        <ActivityIndicator color={colors.ink} style={{ marginVertical: 24 }} />
+      ) : alerts.length === 0 ? (
+        <Text style={styles.empty}>No local alert events recorded yet.</Text>
       ) : (
-        history.map((event) => (
-          <View style={styles.historyItem} key={event.id}>
+        alerts.map((item) => (
+          <View style={styles.historyItem} key={item.id}>
             <View>
-              <Text style={styles.alertCode}>{event.event_type}</Text>
-              <Text style={styles.historyTime}>{new Date(event.occurred_at).toLocaleString()}</Text>
+              <Text style={styles.alertCode}>{item.fall_event?.event_type || 'FALL_DETECTED'}</Text>
+              <Text style={styles.historyTime}>
+                {new Date(item.fall_event?.occurred_at || item.created_at).toLocaleString()} · STATUS: {item.status}
+              </Text>
             </View>
-            <Text style={styles.historyConfidence}>{Math.round(event.confidence * 100)}%</Text>
+            <Text style={styles.historyConfidence}>
+              {item.fall_event ? `${Math.round(item.fall_event.confidence * 100)}%` : '—'}
+            </Text>
           </View>
         ))
       )}
@@ -428,23 +566,36 @@ export function HistoryScreen({ navigation }: Props<'History'>) {
 
 export function DeviceHealthScreen({ navigation }: Props<'DeviceHealth'>) {
   const deviceId = useDeviceStore((state) => state.deviceId);
-  const connected = useDeviceStore((state) => state.connected);
-  const battery = useDeviceStore((state) => state.batteryLevel);
+  const [deviceInfo, setDeviceInfo] = useState<any>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadInfo() {
+      const dev = await DeviceService.getDevice(deviceId || 'nex-guard-001');
+      if (mounted) setDeviceInfo(dev);
+    }
+    void loadInfo();
+    return () => {
+      mounted = false;
+    };
+  }, [deviceId]);
 
   return (
     <Shell eyebrow="NEX GUARD / 04 DEVICE">
       <Pressable onPress={() => navigation.goBack()}>
         <Text style={styles.back}>← DASHBOARD</Text>
       </Pressable>
-      <SectionTitle index="04 / STATUS" title="Device health" copy="A live view of the wearable connection." />
+      <SectionTitle index="04 / STATUS" title="Device health" copy="Local device profile and hardware verification status." />
       <View style={styles.healthCard}>
-        <DataRow label="DEVICE ID" value={deviceId} />
-        <DataRow label="WEBSOCKET" value={connected ? 'CONNECTED' : 'CONNECTING'} />
-        <DataRow label="BATTERY" value={battery === null ? 'UNKNOWN' : `${battery}%`} />
-        <DataRow label="SENSORS" value="LOCAL PROCESSING (MPU6050 + BMP390)" />
+        <DataRow label="DEVICE ID" value={deviceId || 'nex-guard-001'} />
+        <DataRow label="OPERATIONAL MODE" value="STANDALONE LOCAL MODE" />
+        <DataRow label="DEVICE REGISTERED" value={deviceInfo ? 'YES (SQLite)' : 'YES (Local default)'} />
+        <DataRow label="SENSOR CONNECTION" value="LOCAL SIMULATION / DISCONNECTED" />
+        <DataRow label="BATTERY STATE" value="Unverified (Hardware disconnected)" />
+        <DataRow label="FASTAPI BACKEND" value="OFFLINE / NOT REQUIRED" />
       </View>
       <Text style={styles.healthNote}>
-        Raw motion data stays on the wearable. Only confirmed events cross the network boundary.
+        Truthful Hardware State: Mobile app operates 100% offline. Raw hardware telemetry requires physical ESP32 BLE/UART connection in Phase 7.
       </Text>
     </Shell>
   );
@@ -453,6 +604,7 @@ export function DeviceHealthScreen({ navigation }: Props<'DeviceHealth'>) {
 export function ProfileScreen({ navigation }: Props<'Profile'>) {
   const caregiverName = useAuthStore((state) => state.caregiverName);
   const elderlyName = useAuthStore((state) => state.elderlyName);
+  const email = useAuthStore((state) => state.email);
   const signOut = useAuthStore((state) => state.signOut);
 
   return (
@@ -460,13 +612,65 @@ export function ProfileScreen({ navigation }: Props<'Profile'>) {
       <Pressable onPress={() => navigation.goBack()}>
         <Text style={styles.back}>← DASHBOARD</Text>
       </Pressable>
-      <SectionTitle index="05 / CAREGIVER" title="Profile & settings" copy="The essentials, kept close and quiet." />
+      <SectionTitle index="05 / CAREGIVER" title="Profile & settings" copy="Local account details stored on this device." />
       <View style={styles.profileBlock}>
         <DataRow label="CAREGIVER" value={caregiverName || 'Caregiver'} />
+        <DataRow label="EMAIL" value={email || 'local.user@device'} />
         <DataRow label="WATCHING OVER" value={elderlyName || 'Family member'} />
-        <DataRow label="NOTIFICATIONS" value="EMERGENCY ONLY" />
+        <DataRow label="STORAGE ENGINE" value="LOCAL SQLITE + SECURE STORE" />
+        <DataRow label="BACKEND DEPENDENCY" value="NONE (OFFLINE FIRST)" />
       </View>
       <Button label="SIGN OUT" secondary onPress={signOut} />
+    </Shell>
+  );
+}
+
+export function ScenarioCenterScreen({ navigation }: Props<'ScenarioCenter'>) {
+  const [resultText, setResultText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const deviceId = useDeviceStore((state) => state.deviceId);
+
+  const runTestScenario = async (scenario: any) => {
+    setLoading(true);
+    setResultText(null);
+    try {
+      const res = await FallDetectionService.triggerScenario(scenario, deviceId || 'nex-guard-001');
+      setResultText(`SIMULATED RESULT: ${res.label}`);
+      if (res.isFall) {
+        navigation.navigate('Emergency');
+      }
+    } catch (e: any) {
+      setResultText(`ERROR: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Shell eyebrow="NEX GUARD / TEST CENTER">
+      <Pressable onPress={() => navigation.goBack()}>
+        <Text style={styles.back}>← DASHBOARD</Text>
+      </Pressable>
+      <SectionTitle
+        index="TEST / SCENARIOS"
+        title="Scenario simulator"
+        copy="Test application logic and state machine without physical hardware."
+      />
+      {resultText && (
+        <View style={styles.diagram}>
+          <Text style={styles.diagramCode}>PIPELINE OUTPUT</Text>
+          <Text style={styles.copy}>{resultText}</Text>
+        </View>
+      )}
+      <View style={{ gap: 12 }}>
+        <Button label="1. SIMULATE NORMAL WALKING (1.15g)" secondary onPress={() => runTestScenario('NORMAL_WALKING')} loading={loading} />
+        <Button label="2. SIMULATE SITTING DOWN (1.02g)" secondary onPress={() => runTestScenario('SITTING')} loading={loading} />
+        <Button label="3. SIMULATE SUDDEN IMPACT FALL (3.80g)" onPress={() => runTestScenario('SUDDEN_IMPACT_FALL')} loading={loading} />
+        <Button label="4. SIMULATE WALK → FALL (3.10g)" onPress={() => runTestScenario('WALK_FALL')} loading={loading} />
+      </View>
+      <Text style={[styles.healthNote, { marginTop: 24 }]}>
+        Mode: LOCAL SIMULATION (DEFAULT). All scenarios run through the unified preprocessing & fall threshold pipeline.
+      </Text>
     </Shell>
   );
 }

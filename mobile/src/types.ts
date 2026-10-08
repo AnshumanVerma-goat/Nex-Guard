@@ -52,4 +52,5 @@ export type RootStackParamList = {
   History: undefined;
   DeviceHealth: undefined;
   Profile: undefined;
+  ScenarioCenter: undefined;
 };

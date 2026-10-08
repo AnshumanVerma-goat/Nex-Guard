@@ -1,34 +1,39 @@
 import { create } from 'zustand';
-import { api, setAuthToken } from './api';
+import { AuthService } from './services/AuthService';
 import { AlertItem, EventPayload } from './types';
 
 type AuthState = {
   isAuthenticated: boolean;
-  token: string | null;
+  userId: string | null;
+  email: string | null;
   caregiverName: string;
   elderlyName: string;
   profileComplete: boolean;
-  setAuth: (token: string, caregiverName: string) => void;
-  signIn: (name: string) => void;
+  setAuth: (userId: string, email: string, caregiverName: string) => void;
   completeProfile: (name: string, relationship?: string) => void;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
-  token: null,
+  userId: null,
+  email: null,
   caregiverName: '',
   elderlyName: '',
   profileComplete: false,
-  setAuth: (token, caregiverName) => {
-    setAuthToken(token);
-    set({ isAuthenticated: true, token, caregiverName });
+  setAuth: (userId, email, caregiverName) => {
+    set({ isAuthenticated: true, userId, email, caregiverName });
   },
-  signIn: (name) => set({ isAuthenticated: true, caregiverName: name }),
   completeProfile: (name) => set({ elderlyName: name, profileComplete: true }),
-  signOut: () => {
-    setAuthToken(null);
-    set({ isAuthenticated: false, token: null, caregiverName: '', profileComplete: false });
+  signOut: async () => {
+    await AuthService.logout();
+    set({
+      isAuthenticated: false,
+      userId: null,
+      email: null,
+      caregiverName: '',
+      profileComplete: false,
+    });
   },
 }));
 

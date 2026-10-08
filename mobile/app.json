@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Nex Guard",
+    "slug": "nex-guard",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#f4f1eb"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "53b54899-8a92-404a-845a-e87ff10c2ef4"
+      }
+    },
+    "android": {
+      "package": "com.anshuman_verma.nexguard"
+    },
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}
